@@ -39,4 +39,4 @@ npm run dev
 
 Open http://localhost:3000 (dashboard, trial balance, balance sheet, P&L, transactions).
 
-DB findings: [docs/DB_ANALYSIS.md](docs/DB_ANALYSIS.md).
+DB findings: [docs/DB_ANALYSIS.md](docs/DB_ANALYSIS.md) · Full implementation guide: [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md).
