@@ -1,11 +1,12 @@
 import { BRANCHES, DEFAULT_DATE, getJson, Group, money, one, SP } from "@/lib/api";
+import { branchFor } from "@/lib/session";
 import { Filters, ReportHeader, Section, Unavailable } from "@/components/ui";
 
 type PL = { income: Group[]; expenses: Group[]; totalIncome: number; totalExpenses: number; netProfit: number; note: string };
 
 export default async function ProfitLoss({ searchParams }: { searchParams: SP }) {
   const sp = await searchParams;
-  const branch = one(sp.branch, "all");
+  const branch = await branchFor(sp.branch);
   const to = one(sp.to, DEFAULT_DATE);
   const from = one(sp.from, `${to.slice(0, 4)}-01-01`);
   const q = `from=${from}&to=${to}&branch=${branch}`;
@@ -14,7 +15,7 @@ export default async function ProfitLoss({ searchParams }: { searchParams: SP })
 
   return (
     <>
-      <ReportHeader title="Profit & Loss" sub={`${name} · ${from} to ${to} · LKR`} exportQuery={`/api/reports/profit-loss/export?${q}`} />
+      <ReportHeader title="Profit & Loss" sub={`${name} · ${from} to ${to} · LKR`} exportQuery={`/export/profit-loss?${q}`} />
       <Filters
         branch={branch}
         dates={[

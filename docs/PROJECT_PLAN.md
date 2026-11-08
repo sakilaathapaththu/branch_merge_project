@@ -107,7 +107,7 @@ branchmerge/
 
 ### Phase 5 – Verification & deployment
 - [ ] Reconcile every report against MBWin's own reports for both branches (31-Oct-2026 EOM)
-- [ ] Authentication (login, roles) before any network exposure
+- [x] Authentication (login, roles) before any network exposure
 - [ ] Deploy on the server that hosts both DBs (Windows service / IIS reverse proxy)
 - [ ] Docs: install guide, user guide
 

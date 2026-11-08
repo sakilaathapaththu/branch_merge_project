@@ -10,8 +10,9 @@ from app.core.config import get_settings
 def get_engine() -> Engine:
     """Engine on master; queries use fully qualified [db].dbo.[table] names.
 
-    The backend only ever reads. Production should use a SQL login that has
-    db_datareader only on the MBWin databases.
+    MBWin data is only ever read. The one write target is
+    MB_Consolidated.dbo.AppUsers (login users). Production uses the
+    branchmerge_ro login: db_datareader + write on AppUsers only.
     """
     s = get_settings()
     auth = (
@@ -21,7 +22,7 @@ def get_engine() -> Engine:
     )
     odbc = (
         f"DRIVER={{{s.db_driver}}};SERVER={s.db_server};DATABASE=master;"
-        f"{auth}ApplicationIntent=ReadOnly;"
+        f"{auth}"
     )
     return create_engine(
         f"mssql+pyodbc:///?odbc_connect={quote_plus(odbc)}",

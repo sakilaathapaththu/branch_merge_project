@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     # MBWin stores money as integer cents; divide to get rupees.
     amount_divisor: int = 100
 
+    # Login tokens. JWT_SECRET must be set in .env (long random string).
+    jwt_secret: str = ""
+    jwt_expire_minutes: int = 480
+
     @property
     def branches(self) -> dict[str, dict[str, str]]:
         """Branch code -> name and source database."""

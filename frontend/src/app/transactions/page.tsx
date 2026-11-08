@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getJson, money, one, SP } from "@/lib/api";
+import { branchFor } from "@/lib/session";
 import { Filters, ReportHeader, Unavailable } from "@/components/ui";
 
 type Trn = {
@@ -11,7 +12,7 @@ type Trn = {
 
 export default async function Transactions({ searchParams }: { searchParams: SP }) {
   const sp = await searchParams;
-  const branch = one(sp.branch, "all");
+  const branch = await branchFor(sp.branch);
   const from = one(sp.from, "");
   const to = one(sp.to, "");
   const acc = one(sp.acc, "");

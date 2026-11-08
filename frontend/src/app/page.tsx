@@ -1,11 +1,12 @@
 import { DEFAULT_DATE, getJson, money, one, SP } from "@/lib/api";
 import { Check } from "@/components/ui";
+import { getUser } from "@/lib/session";
 
 type Health = { status: string; databases?: Record<string, string>; error?: string };
 type BS = { totalAssets: number; totalLiabilities: number; totalEquity: number; currentYearProfit: number; balanced: boolean };
 type PL = { totalIncome: number; totalExpenses: number; netProfit: number };
 
-const COLS = [
+const ALL_COLS = [
   ["001", "Head Office"],
   ["002", "Mahapitiya"],
   ["all", "Consolidated"],
@@ -14,6 +15,8 @@ const COLS = [
 export default async function Dashboard({ searchParams }: { searchParams: SP }) {
   const date = one((await searchParams).date, DEFAULT_DATE);
   const yearStart = `${date.slice(0, 4)}-01-01`;
+  const user = await getUser();
+  const COLS = ALL_COLS.filter(([b]) => !user || user.branch === "all" || b === user.branch);
   const health = await getJson<Health>("/api/health");
   const data = await Promise.all(
     COLS.map(async ([b]) => ({

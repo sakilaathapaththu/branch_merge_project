@@ -23,6 +23,8 @@ cd backend
 python -m venv .venv
 .\.venv\Scripts\pip install -r requirements.txt
 copy .env.example .env      # edit DB names / server
+# set JWT_SECRET in .env:  python -c "import secrets;print(secrets.token_urlsafe(48))"
+.\.venv\Scripts\python -m app.manage create-user admin --name "Administrator" --role admin --branch all
 .\.venv\Scripts\uvicorn app.main:app --reload --port 8000
 ```
 

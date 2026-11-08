@@ -1,8 +1,9 @@
-import { API_URL, BRANCHES, Group, money } from "@/lib/api";
+import { BRANCHES, Group, money } from "@/lib/api";
+import { getUser } from "@/lib/session";
 import { PrintButton } from "./PrintButton";
 
 /** GET form: branch selector + date field(s). Works without client JS. */
-export function Filters({
+export async function Filters({
   branch,
   dates,
   extra,
@@ -11,12 +12,14 @@ export function Filters({
   dates: { name: string; label: string; value: string }[];
   extra?: React.ReactNode;
 }) {
+  const user = await getUser();
+  const options = BRANCHES.filter((b) => !user || user.branch === "all" || b.code === user.branch);
   return (
     <form className="no-print mt-4 flex flex-wrap items-end gap-3 rounded-lg border p-3 text-sm">
       <label className="flex flex-col">
         Branch
         <select name="branch" defaultValue={branch} className="rounded border px-2 py-1">
-          {BRANCHES.map((b) => (
+          {options.map((b) => (
             <option key={b.code} value={b.code}>
               {b.name}
             </option>
@@ -44,7 +47,7 @@ export function ReportHeader({ title, sub, exportQuery }: { title: string; sub: 
       </div>
       <div className="no-print flex gap-2">
         {exportQuery && (
-          <a href={`${API_URL}${exportQuery}`} className="rounded border px-3 py-1.5 text-sm hover:bg-gray-100">
+          <a href={exportQuery} className="rounded border px-3 py-1.5 text-sm hover:bg-gray-100">
             Export Excel
           </a>
         )}

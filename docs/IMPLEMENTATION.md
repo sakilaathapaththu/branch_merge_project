@@ -4,7 +4,7 @@ This document covers what has been built so far, how it works, and how to run it
 Background and decisions are in [PROJECT_PLAN.md](PROJECT_PLAN.md). Database findings are in
 [DB_ANALYSIS.md](DB_ANALYSIS.md).
 
-_Last updated: 08-Nov-2026 (commit `42f5de5`)_
+_Last updated: 08-Nov-2026_
 
 ---
 
@@ -17,7 +17,8 @@ _Last updated: 08-Nov-2026 (commit `42f5de5`)_
 | 2 – Consolidated database | ✅ Done | `database/` scripts → `MB_Consolidated` views |
 | 3 – Backend API | ✅ Done | FastAPI report endpoints + Excel export, 8 tests passing |
 | 4 – Frontend | ✅ First version | Dashboard, trial balance, balance sheet, P&L, transactions |
-| 5 – Verification & deployment | ⏳ Not started | Reconcile with MBWin, login, server deploy |
+| 5a – Login & roles | ✅ Done | AppUsers table, JWT login, admin/viewer roles, per-branch access, Users page |
+| 5 – Verification & deployment | ⏳ Not started | Reconcile with MBWin, server deploy |
 
 ---
 
@@ -158,17 +159,57 @@ API address: `NEXT_PUBLIC_API_URL` in `frontend/.env.local` (default `http://loc
 
 ---
 
-## 7. Running locally
+## 7. Login & roles
+
+| Role | Can do |
+|---|---|
+| `admin` | All reports for all branches; manage users (`/users` page) |
+| `viewer` | Reports for the branch assigned to the user (`001`, `002` or `all`) |
+
+- Users are stored in `MB_Consolidated.dbo.AppUsers` (`database/04_auth.sql`). This is the
+  **only** table the backend writes to. MBWin is still read-only.
+- Passwords are hashed with PBKDF2-SHA256 (600,000 iterations, random salt). Plain passwords are never stored.
+- `POST /api/auth/login` returns a JWT (HS256, signed with `JWT_SECRET`, valid for `JWT_EXPIRE_MINUTES`, default 8 h).
+  The frontend keeps it in an **httpOnly cookie** (`bm_token`) that the browser's JavaScript can't read.
+- Every API endpoint except `/api/health` and `/api/auth/login` requires the token.
+- A branch user asking for `branch=all` gets only their own branch. Asking for another branch gives 403.
+  The dashboard, filters and branch list show only their branch.
+- An admin can't disable or demote the last active admin.
+- Excel export goes through the frontend (`/export/<report>`), which adds the token on the server side.
+
+| Endpoint | Who | Purpose |
+|---|---|---|
+| `POST /api/auth/login` | anyone | `{username, password}` → `{token, user}` |
+| `GET /api/auth/me` | logged in | Current user |
+| `GET /api/auth/users` | admin | List users |
+| `POST /api/auth/users` | admin | Create user (password min 8 characters) |
+| `PATCH /api/auth/users/{username}` | admin | Change name, password, role, branch, active |
+
+**First admin** (command line, password typed interactively):
 
 ```powershell
-# 1. Database views
+cd backend
+.\.venv\Scripts\python -m app.manage create-user admin --name "Administrator" --role admin --branch all
+.\.venv\Scripts\python -m app.manage reset-password admin
+```
+
+Settings: backend `JWT_SECRET` (required, ≥ 32 characters, keep it secret) and `JWT_EXPIRE_MINUTES`;
+frontend `COOKIE_SECURE=true` once the site is served over HTTPS.
+
+---
+
+## 8. Running locally
+
+```powershell
+# 1. Database views + users table
 sh database/deploy.sh
 
 # 2. Backend
 cd backend
 python -m venv .venv
 .\.venv\Scripts\pip install -r requirements.txt
-copy .env.example .env
+copy .env.example .env          # then set JWT_SECRET
+.\.venv\Scripts\python -m app.manage create-user admin --name "Administrator" --role admin
 .\.venv\Scripts\uvicorn app.main:app --port 8000
 
 # 3. Frontend (new terminal)
@@ -182,7 +223,7 @@ Open http://localhost:3000.
 
 ---
 
-## 8. Verification results (31-Oct-2026 backups, LKR)
+## 9. Verification results (31-Oct-2026 backups, LKR)
 
 | Check | HO | Mahapitiya | Consolidated |
 |---|---|---|---|
@@ -198,13 +239,13 @@ Response times are about 1–2 seconds per page on the local machine.
 
 ---
 
-## 9. Open items & known limitations
+## 10. Open items & known limitations
 
 1. **Confirm cents:** compare one balance with an MBWin report. If it's wrong, change `AMOUNT_DIVISOR`.
 2. **Inter-branch account `418`:** decide whether to eliminate it in the consolidated balance sheet.
 3. **Month-end only:** reports are at month-end level. Daily balances inside a month would need
    the journals (`T_GLJL` / `T_GlJlHIST`). HO's October figures are month-to-date (backup taken before EOM).
-4. **No login yet:** the system must not be exposed on the network until authentication and roles are added.
+4. **HTTPS:** login is in place, but put the site behind HTTPS (IIS) before network use and set `COOKIE_SECURE=true`. There is no login rate limiting yet.
 5. **PDF** uses browser print. There is no server-side PDF.
 6. Customer, account and loan views exist, but there are no API endpoints or pages for them yet.
 7. **Deployment** (Windows service / IIS) and the user guide are still to do (Phase 5).

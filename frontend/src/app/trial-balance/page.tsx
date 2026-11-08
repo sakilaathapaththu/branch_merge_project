@@ -1,4 +1,5 @@
 import { BRANCHES, DEFAULT_DATE, getJson, money, one, SP } from "@/lib/api";
+import { branchFor } from "@/lib/session";
 import { Check, Filters, ReportHeader, Unavailable } from "@/components/ui";
 
 type TB = {
@@ -10,7 +11,7 @@ type TB = {
 
 export default async function TrialBalance({ searchParams }: { searchParams: SP }) {
   const sp = await searchParams;
-  const branch = one(sp.branch, "all");
+  const branch = await branchFor(sp.branch);
   const date = one(sp.date, DEFAULT_DATE);
   const q = `date=${date}&branch=${branch}`;
   const tb = await getJson<TB>(`/api/reports/trial-balance?${q}`);
@@ -19,7 +20,7 @@ export default async function TrialBalance({ searchParams }: { searchParams: SP 
 
   return (
     <>
-      <ReportHeader title="Trial Balance" sub={`${name} · as of ${date} · LKR`} exportQuery={`/api/reports/trial-balance/export?${q}`} />
+      <ReportHeader title="Trial Balance" sub={`${name} · as of ${date} · LKR`} exportQuery={`/export/trial-balance?${q}`} />
       <Filters branch={branch} dates={[{ name: "date", label: "As of", value: date }]} />
       {!tb ? (
         <Unavailable />

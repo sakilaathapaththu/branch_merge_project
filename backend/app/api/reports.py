@@ -2,30 +2,33 @@ from datetime import date
 from io import BytesIO
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
 
+from app.core.security import User, allowed_branch, current_user
 from app.services import reports as svc
 
 Branch = Literal["001", "002", "all"]
 
 router = APIRouter(tags=["reports"])
 
+Me = Depends(current_user)
+
 
 @router.get("/gl/accounts")
-def gl_accounts(branch: Branch = "all"):
-    return svc.gl_accounts(branch)
+def gl_accounts(branch: Branch = "all", user: User = Me):
+    return svc.gl_accounts(allowed_branch(branch, user))
 
 
 @router.get("/reports/trial-balance")
-def trial_balance(date: date = Query(...), branch: Branch = "all"):
-    return svc.trial_balance(date, branch)
+def trial_balance(date: date = Query(...), branch: Branch = "all", user: User = Me):
+    return svc.trial_balance(date, allowed_branch(branch, user))
 
 
 @router.get("/reports/balance-sheet")
-def balance_sheet(date: date = Query(...), branch: Branch = "all"):
-    return svc.balance_sheet(date, branch)
+def balance_sheet(date: date = Query(...), branch: Branch = "all", user: User = Me):
+    return svc.balance_sheet(date, allowed_branch(branch, user))
 
 
 @router.get("/reports/profit-loss")
@@ -33,7 +36,9 @@ def profit_loss(
     date_from: date = Query(..., alias="from"),
     date_to: date = Query(..., alias="to"),
     branch: Branch = "all",
+    user: User = Me,
 ):
+    branch = allowed_branch(branch, user)
     if date_from > date_to:
         raise HTTPException(400, "'from' must be on or before 'to'")
     return svc.profit_loss(date_from, date_to, branch)
@@ -42,12 +47,14 @@ def profit_loss(
 @router.get("/transactions")
 def transactions(
     branch: Branch = "all",
+    user: User = Me,
     date_from: date | None = Query(None, alias="from"),
     date_to: date | None = Query(None, alias="to"),
     acc: str | None = None,
     page: int = Query(1, ge=1),
     size: int = Query(50, ge=1, le=500),
 ):
+    branch = allowed_branch(branch, user)
     return svc.transactions(branch, date_from, date_to, acc, page, size)
 
 
@@ -84,10 +91,12 @@ def export(
     name: Literal["trial-balance", "balance-sheet", "profit-loss"],
     format: Literal["xlsx"] = "xlsx",
     branch: Branch = "all",
+    user: User = Me,
     date: date | None = None,
     date_from: date | None = Query(None, alias="from"),
     date_to: date | None = Query(None, alias="to"),
 ):
+    branch = allowed_branch(branch, user)
     if name == "profit-loss":
         if not (date_from and date_to):
             raise HTTPException(400, "'from' and 'to' are required")
