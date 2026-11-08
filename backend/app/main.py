@@ -1,0 +1,21 @@
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.api import branches, health
+from app.core.config import get_settings
+
+app = FastAPI(
+    title="Branch Merge API",
+    description="Read-only consolidated reporting over MicroBanker branch databases",
+    version="0.1.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o.strip() for o in get_settings().cors_origins.split(",")],
+    allow_methods=["GET"],
+    allow_headers=["*"],
+)
+
+app.include_router(health.router, prefix="/api")
+app.include_router(branches.router, prefix="/api")
