@@ -123,6 +123,6 @@ branchmerge/
 - Does the production server host both DBs on the same SQL instance? (Cross-database views need this. If not, use a linked server or ETL.)
 - ~~Are the GL charts identical across branches?~~ Yes, apart from titles (see DB_ANALYSIS.md)
 - Is money stored in cents? (Assumed, `AMOUNT_DIVISOR=100`; confirm against an MBWin report)
-- Should inter-branch account `418` be eliminated in the consolidated balance sheet?
+- ~~Should inter-branch accounts be eliminated?~~ Yes. Two pairs are eliminated (PROGRESS.md §2.2); confirm them with accounts staff.
 - Which reports does management need first? (Suggested: trial balance → balance sheet → P&L)
-- Who will use the system, and does it need login roles per branch?
+- ~~Who will use the system, and does it need login roles per branch?~~ Login is implemented: admin / viewer, per branch.

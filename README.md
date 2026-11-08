@@ -13,7 +13,7 @@ See [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md) for the full plan.
 ## Database (MB_Consolidated)
 
 ```sh
-sh database/deploy.sh      # creates the consolidated views; see database/README.md
+sh database/deploy.sh      # creates MB_Consolidated + AppUsers login table; see database/README.md
 ```
 
 ## Backend (FastAPI)
@@ -39,6 +39,6 @@ copy .env.local.example .env.local
 npm run dev
 ```
 
-Open http://localhost:3000 (dashboard, trial balance, balance sheet, P&L, transactions).
+Open http://localhost:3000 and sign in. Pages: dashboard, trial balance, balance sheet, P&L, GL ledger, loans, arrears, deposits, transactions, users.
 
-DB findings: [docs/DB_ANALYSIS.md](docs/DB_ANALYSIS.md) · Full implementation guide: [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md).
+Docs: [implementation guide](docs/IMPLEMENTATION.md) · [progress](docs/PROGRESS.md) · [DB analysis](docs/DB_ANALYSIS.md).

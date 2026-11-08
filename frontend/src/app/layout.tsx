@@ -13,7 +13,11 @@ const NAV = [
   ["/", "Dashboard"],
   ["/trial-balance", "Trial Balance"],
   ["/balance-sheet", "Balance Sheet"],
-  ["/profit-loss", "Profit & Loss"],
+  ["/income-statement", "Profit & Loss"],
+  ["/gl-ledger", "GL Ledger"],
+  ["/loans", "Loans"],
+  ["/arrears", "Arrears"],
+  ["/deposits", "Deposits"],
   ["/transactions", "Transactions"],
 ];
 

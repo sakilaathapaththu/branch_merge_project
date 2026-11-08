@@ -1,6 +1,9 @@
+import re
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_DB_NAME = re.compile(r"^[A-Za-z0-9_]+$")
 
 
 class Settings(BaseSettings):
@@ -13,24 +16,44 @@ class Settings(BaseSettings):
 
     db_ho: str = "MicroBanker_ho_BeforeEOM_20261031"
     db_br: str = "MicroBanker_br_EOM_20261031"
+    # Holds the AppUsers login table (database/04_auth.sql) and optional views.
     db_consolidated: str = "MB_Consolidated"
 
     cors_origins: str = "http://localhost:3000"
 
-    # MBWin stores money as integer cents; divide to get rupees.
+    # MBWin stores money as integer cents; report money values are divided by this.
     amount_divisor: int = 100
 
     # Login tokens. JWT_SECRET must be set in .env (long random string).
     jwt_secret: str = ""
     jwt_expire_minutes: int = 480
 
+    # Inter-branch GL accounts eliminated in consolidated figures, as
+    # "branch:gl" pairs; groups separated by ";". Each group must net to zero.
+    #   HO 418010101 Branch Advances - Mahapitiya  <->  BR 315400101 Branch Advances - Ahugoda
+    #   HO 201040102 Branch Advance interest       <->  BR 120010117 Branch Advance Interest Income
+    eliminations: str = "001:418010101,002:315400101;001:201040102,002:120010117"
+
     @property
     def branches(self) -> dict[str, dict[str, str]]:
-        """Branch code -> name and source database."""
-        return {
-            "001": {"name": "Head Office", "database": self.db_ho},
-            "002": {"name": "Mahapitiya Branch", "database": self.db_br},
+        """Branch code -> name and source database. Database names are
+        validated because they are interpolated into SQL as identifiers."""
+        out = {
+            "001": {"name": "Head Office", "short": "HO", "database": self.db_ho},
+            "002": {"name": "Mahapitiya Branch", "short": "Mahapitiya", "database": self.db_br},
         }
+        for b in out.values():
+            if not _DB_NAME.match(b["database"]):
+                raise ValueError(f"Invalid database name: {b['database']!r}")
+        return out
+
+    @property
+    def elimination_groups(self) -> list[list[tuple[str, str]]]:
+        groups = []
+        for grp in filter(None, self.eliminations.split(";")):
+            pairs = [p.strip().split(":", 1) for p in grp.split(",") if p.strip()]
+            groups.append([(b, gl) for b, gl in pairs])
+        return groups
 
 
 @lru_cache

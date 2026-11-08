@@ -1,125 +1,119 @@
 from datetime import date
-from io import BytesIO
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
-from openpyxl import Workbook
+from fastapi import APIRouter, Depends, Query
 
+from app.core.config import get_settings
 from app.core.security import User, allowed_branch, current_user
-from app.services import reports as svc
+from app.services import gl, portfolio
+from app.services.export import to_xlsx
+from app.services.report import money, resolve_branches
 
-Branch = Literal["001", "002", "all"]
+# Every report needs a logged-in user; branch users only see their own branch.
+router = APIRouter(tags=["reports"], dependencies=[Depends(current_user)])
 
-router = APIRouter(tags=["reports"])
-
+Branch = Query("all", description="'all' (consolidated) or a branch code, e.g. 001")
+Format = Literal["json", "xlsx"]
 Me = Depends(current_user)
 
 
+def respond(rep: dict, format: Format):
+    return to_xlsx(rep) if format == "xlsx" else rep
+
+
+@router.get("/periods")
+def periods():
+    return gl.periods()
+
+
 @router.get("/gl/accounts")
-def gl_accounts(branch: Branch = "all", user: User = Me):
-    return svc.gl_accounts(allowed_branch(branch, user))
+def gl_accounts():
+    return gl.gl_accounts()
 
 
 @router.get("/reports/trial-balance")
-def trial_balance(date: date = Query(...), branch: Branch = "all", user: User = Me):
-    return svc.trial_balance(date, allowed_branch(branch, user))
+def trial_balance(branch: str = Branch, year: int | None = None, month: int | None = None,
+                  show_zero: bool = False, format: Format = "json", user: User = Me):
+    return respond(gl.trial_balance(allowed_branch(branch, user), year, month, show_zero), format)
 
 
 @router.get("/reports/balance-sheet")
-def balance_sheet(date: date = Query(...), branch: Branch = "all", user: User = Me):
-    return svc.balance_sheet(date, allowed_branch(branch, user))
+def balance_sheet(branch: str = Branch, year: int | None = None, month: int | None = None,
+                  detail: bool = False, format: Format = "json", user: User = Me):
+    return respond(gl.balance_sheet(allowed_branch(branch, user), year, month, detail), format)
 
 
-@router.get("/reports/profit-loss")
-def profit_loss(
-    date_from: date = Query(..., alias="from"),
-    date_to: date = Query(..., alias="to"),
-    branch: Branch = "all",
-    user: User = Me,
-):
-    branch = allowed_branch(branch, user)
-    if date_from > date_to:
-        raise HTTPException(400, "'from' must be on or before 'to'")
-    return svc.profit_loss(date_from, date_to, branch)
+@router.get("/reports/income-statement")
+def income_statement(branch: str = Branch, year: int | None = None, from_month: int | None = None,
+                     to_month: int | None = None, detail: bool = False, format: Format = "json",
+                     user: User = Me):
+    return respond(gl.income_statement(allowed_branch(branch, user), year, from_month, to_month, detail),
+                   format)
 
 
-@router.get("/transactions")
-def transactions(
-    branch: Branch = "all",
-    user: User = Me,
-    date_from: date | None = Query(None, alias="from"),
-    date_to: date | None = Query(None, alias="to"),
-    acc: str | None = None,
-    page: int = Query(1, ge=1),
-    size: int = Query(50, ge=1, le=500),
-):
-    branch = allowed_branch(branch, user)
-    return svc.transactions(branch, date_from, date_to, acc, page, size)
+@router.get("/reports/gl-ledger")
+def gl_ledger(gl_code: str, date_from: date, date_to: date, branch: str = Branch,
+              format: Format = "json", user: User = Me):
+    return respond(gl.gl_ledger(allowed_branch(branch, user), gl_code, date_from, date_to), format)
 
 
-def _sheet_rows(name: str, data: dict) -> tuple[list[str], list[list]]:
-    if name == "trial-balance":
-        return (["GL Account", "Code", "Title", "Type", "Debit", "Credit"],
-                [[l["glAcc"], l["code"], l["title"], l["type"], l["debit"], l["credit"]]
-                 for l in data["lines"]]
-                + [["", "", "TOTAL", "", data["totalDebit"], data["totalCredit"]]])
-    sections = (
-        [("Assets", "assets"), ("Liabilities", "liabilities"), ("Equity", "equity")]
-        if name == "balance-sheet"
-        else [("Income", "income"), ("Expenses", "expenses")]
-    )
-    rows: list[list] = []
-    for label, key in sections:
-        rows.append([label.upper(), "", ""])
-        for g in data[key]:
-            rows.append([g["sortCode"], g["title"], g["amount"]])
-            rows += [[a["code"], "   " + a["title"], a["amount"]] for a in g["accounts"]]
-    if name == "balance-sheet":
-        rows += [["", "Current year profit", data["currentYearProfit"]],
-                 ["", "Total assets", data["totalAssets"]],
-                 ["", "Total liabilities + equity", data["totalLiabilitiesAndEquity"]]]
-    else:
-        rows += [["", "Total income", data["totalIncome"]],
-                 ["", "Total expenses", data["totalExpenses"]],
-                 ["", "Net profit", data["netProfit"]]]
-    return ["Code", "Title", "Amount"], rows
+@router.get("/reports/loan-portfolio")
+def loan_portfolio(branch: str = Branch, format: Format = "json", user: User = Me):
+    return respond(portfolio.loan_portfolio(allowed_branch(branch, user)), format)
 
 
-@router.get("/reports/{name}/export")
-def export(
-    name: Literal["trial-balance", "balance-sheet", "profit-loss"],
-    format: Literal["xlsx"] = "xlsx",
-    branch: Branch = "all",
-    user: User = Me,
-    date: date | None = None,
-    date_from: date | None = Query(None, alias="from"),
-    date_to: date | None = Query(None, alias="to"),
-):
-    branch = allowed_branch(branch, user)
-    if name == "profit-loss":
-        if not (date_from and date_to):
-            raise HTTPException(400, "'from' and 'to' are required")
-        data = svc.profit_loss(date_from, date_to, branch)
-    else:
-        if not date:
-            raise HTTPException(400, "'date' is required")
-        data = (svc.trial_balance if name == "trial-balance" else svc.balance_sheet)(date, branch)
+@router.get("/reports/arrears-ageing")
+def arrears_ageing(branch: str = Branch, format: Format = "json", user: User = Me):
+    return respond(portfolio.arrears_ageing(allowed_branch(branch, user)), format)
 
-    header, rows = _sheet_rows(name, data)
-    wb = Workbook()
-    ws = wb.active
-    ws.title = name
-    ws.append([f"{name.replace('-', ' ').title()} – branch {branch}"])
-    ws.append([f"{k}: {data[k]}" for k in ("asOf", "from", "to") if k in data])
-    ws.append(header)
-    for r in rows:
-        ws.append(r)
-    buf = BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    return StreamingResponse(
-        buf,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="{name}-{branch}.xlsx"'},
-    )
+
+@router.get("/reports/arrears-list")
+def arrears_list(branch: str = Branch, min_days: int = Query(31, ge=1), format: Format = "json",
+                 user: User = Me):
+    return respond(portfolio.arrears_list(allowed_branch(branch, user), min_days), format)
+
+
+@router.get("/reports/deposits")
+def deposits(branch: str = Branch, format: Format = "json", user: User = Me):
+    return respond(portfolio.deposits(allowed_branch(branch, user)), format)
+
+
+@router.get("/reports/transactions")
+def transactions(date_from: date, date_to: date, branch: str = Branch, acc: str | None = None,
+                 format: Format = "json", user: User = Me):
+    return respond(portfolio.transactions(allowed_branch(branch, user), date_from, date_to, acc or None),
+                   format)
+
+
+_MONEY_KPIS = ("assets", "deposits", "profit", "income", "expenses", "loans_outstanding",
+               "par30_amount", "savings", "fixed_deposits")
+
+
+@router.get("/dashboard")
+def dashboard(user: User = Me):
+    p = gl.periods()
+    year, month = p["current_year"], p["last_month"]
+    s = get_settings()
+    codes = resolve_branches(allowed_branch("all", user))
+
+    def kpis(cs: list[str]) -> dict:
+        k = gl.gl_kpis(cs, year, month)
+        port = [portfolio.portfolio_kpis(c) for c in cs]
+        for key in ("loans_count", "loans_outstanding", "par30_amount", "savings",
+                    "fixed_deposits", "deposit_accounts", "customers"):
+            k[key] = sum(x[key] for x in port)
+        k["par30_pct"] = k["par30_amount"] / k["loans_outstanding"] * 100 if k["loans_outstanding"] else 0
+        k["as_of"] = max(x["as_of"] for x in port)
+        for key in _MONEY_KPIS:
+            k[key] = money(k[key])
+        return k
+
+    trend = [{**t, **{k: money(t[k]) for k in ("income", "expenses", "profit")}}
+             for t in gl.monthly_trend(codes, year, month)]
+    return {
+        "year": year,
+        "month": month,
+        "branches": [{"code": c, "name": s.branches[c]["name"], "kpis": kpis([c])} for c in codes],
+        "consolidated": kpis(codes) if len(codes) > 1 else None,
+        "trend": trend,
+    }

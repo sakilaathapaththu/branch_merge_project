@@ -7,7 +7,7 @@ from app.core.config import get_settings
 app = FastAPI(
     title="Branch Merge API",
     description="Read-only consolidated reporting over MicroBanker branch databases",
-    version="0.1.0",
+    version="0.3.0",
 )
 
 app.add_middleware(
@@ -15,6 +15,7 @@ app.add_middleware(
     allow_origins=[o.strip() for o in get_settings().cors_origins.split(",")],
     allow_methods=["GET", "POST", "PATCH"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],
 )
 
 app.include_router(health.router, prefix="/api")

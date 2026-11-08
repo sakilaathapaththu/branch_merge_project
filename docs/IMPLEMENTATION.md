@@ -1,8 +1,9 @@
 # Implementation Guide – Branch Merge Reporting
 
-This document covers what has been built so far, how it works, and how to run it.
-Background and decisions are in [PROJECT_PLAN.md](PROJECT_PLAN.md). Database findings are in
-[DB_ANALYSIS.md](DB_ANALYSIS.md).
+This document covers what has been built, how it works, and how to run it.
+- Plan and decisions: [PROJECT_PLAN.md](PROJECT_PLAN.md)
+- Database findings: [DB_ANALYSIS.md](DB_ANALYSIS.md)
+- Progress and remaining work: [PROGRESS.md](PROGRESS.md)
 
 _Last updated: 08-Nov-2026_
 
@@ -12,12 +13,12 @@ _Last updated: 08-Nov-2026_
 
 | Phase | Status | Output |
 |---|---|---|
-| 0 – Setup | ✅ Done | Repo, backend and frontend scaffolds, health check end to end |
-| 1 – Database analysis | ✅ Done | `docs/DB_ANALYSIS.md` |
-| 2 – Consolidated database | ✅ Done | `database/` scripts → `MB_Consolidated` views |
-| 3 – Backend API | ✅ Done | FastAPI report endpoints + Excel export, 8 tests passing |
-| 4 – Frontend | ✅ First version | Dashboard, trial balance, balance sheet, P&L, transactions |
-| 5a – Login & roles | ✅ Done | AppUsers table, JWT login, admin/viewer roles, per-branch access, Users page |
+| 0 – Setup | ✅ Done | Repo, FastAPI backend, Next.js frontend |
+| 1 – Database analysis | ✅ Done | `docs/DB_ANALYSIS.md`, `docs/PROGRESS.md` §2.2 |
+| 2 – Database scripts | ✅ Done | `database/`: AppUsers login table + optional consolidated views |
+| 3 – Backend API | ✅ Done | GL, loan, arrears, deposit and transaction reports with Excel export and inter-branch eliminations; 28 tests passing |
+| 4 – Frontend | ✅ Done | Dashboard + 9 report pages, print / Excel |
+| 5a – Login & roles | ✅ Done | JWT login, admin/viewer roles, per-branch access, Users page |
 | 5 – Verification & deployment | ⏳ Not started | Reconcile with MBWin, server deploy |
 
 ---
@@ -25,21 +26,22 @@ _Last updated: 08-Nov-2026_
 ## 2. Architecture
 
 ```
-MicroBanker_ho  (HO, 001)  ─┐
-                            ├─►  MB_Consolidated (views only, BranchCode tagged)
-MicroBanker_br  (BR, 002)  ─┘              │
-                                           ▼
-                           FastAPI backend  :8000   (read-only, JSON + Excel)
-                                           │
-                                           ▼
-                           Next.js frontend :3000   (server-rendered report pages)
+MicroBanker_ho (HO, 001) ─┐
+                          ├─► FastAPI backend :8000 ──► Next.js frontend :3000
+MicroBanker_br (BR, 002) ─┘   reads each branch DB        server-rendered pages,
+                              directly (read-only),       login cookie
+                              consolidates in Python
+MB_Consolidated ── AppUsers (login users only)
 ```
 
-- The MBWin databases are **never written to**. Only `SELECT` statements are used.
-- Every row carries `BranchCode` (`001` / `002`), because customer IDs and account numbers
-  clash between the two databases.
-- Amounts are stored by MBWin as integer **cents**. The backend converts to rupees
-  (`AMOUNT_DIVISOR=100`, still to be confirmed).
+- The MBWin databases are **never written to**. The backend reads `[db].dbo.T_*` tables directly
+  and consolidates in Python (`app/services/gl.py`, `portfolio.py`).
+- Each branch is identified by which database it comes from. Customer IDs and account numbers clash
+  between the two databases, so the branch is always shown alongside them.
+- **Inter-branch eliminations:** in consolidated figures, the HO ↔ Mahapitiya advance and advance-interest
+  accounts cancel out. They're configured in `config.py` → `eliminations`.
+- **Money:** MBWin stores amounts as integer cents. `report()` and the dashboard divide by
+  `AMOUNT_DIVISOR=100`. (Example check: HO chief cashier cash 53,103,616 → LKR 531,036.16.)
 
 ---
 
@@ -48,114 +50,97 @@ MicroBanker_br  (BR, 002)  ─┘              │
 ```
 branchmerge/
 ├── database/
-│   ├── 01_create_db.sql     creates MB_Consolidated + BranchMap table
-│   ├── 02_views_gl.sql      GL views (sort codes, accounts, month-end balances)
-│   ├── 02_views_ops.sql     customers, accounts, loans, transactions
+│   ├── 01_create_db.sql     MB_Consolidated + BranchMap
+│   ├── 02_views_gl.sql      optional GL views (for ad-hoc SQL / other tools)
+│   ├── 02_views_ops.sql     optional customer/account/loan/transaction views
 │   ├── 03_security.sql      read-only login branchmerge_ro
-│   ├── deploy.sh            runs 01 + 02 scripts with sqlcmd
-│   └── README.md
-├── backend/
-│   ├── app/main.py          FastAPI app, CORS (GET only), routers
-│   ├── app/core/config.py   settings from .env
-│   ├── app/core/db.py       SQLAlchemy engine (pyodbc, ApplicationIntent=ReadOnly)
-│   ├── app/api/health.py    /api/health
-│   ├── app/api/branches.py  /api/branches
-│   ├── app/api/reports.py   GL, reports, transactions, export
-│   ├── app/services/reports.py   report queries and calculations
-│   └── tests/test_api.py
+│   ├── 04_auth.sql          AppUsers table (required for login)
+│   └── deploy.sh
+├── backend/app/
+│   ├── main.py              FastAPI app, CORS, routers
+│   ├── manage.py            CLI: create-user, reset-password
+│   ├── core/config.py       settings (.env), branches, eliminations
+│   ├── core/db.py           engine, query(), cached_query() (120 s cache)
+│   ├── core/security.py     password hashing, JWT, current_user, branch access
+│   ├── api/                 health, auth, branches, reports
+│   └── services/            gl.py, portfolio.py, report.py (common shape), export.py (xlsx), users.py
 ├── frontend/src/
-│   ├── app/                 page.tsx (dashboard), trial-balance/, balance-sheet/,
-│   │                        profit-loss/, transactions/, layout.tsx (nav)
-│   ├── components/ui.tsx    Filters, ReportHeader, Section, Check
-│   ├── components/PrintButton.tsx
-│   └── lib/api.ts           API URL, branch list, money formatting
-└── docs/                    PROJECT_PLAN, DB_ANALYSIS, IMPLEMENTATION (this file)
+│   ├── app/                 dashboard, trial-balance, balance-sheet, income-statement, gl-ledger,
+│   │                        loans, arrears, deposits, transactions, users, login, export/[name]
+│   ├── components/ui.tsx    Filters, ReportTable, ReportPage, ReportHeader
+│   ├── lib/api.ts           server-side API calls with token, formatting
+│   ├── lib/session.ts       login cookie, current user, branch for user
+│   └── middleware.ts        redirects to /login without a session
+└── docs/
 ```
 
 ---
 
-## 4. Database layer (MB_Consolidated)
-
-| Object | Description |
-|---|---|
-| `BranchMap` (table) | `001` Head Office → HO DB, `002` Mahapitiya → BR DB |
-| `vw_Branches` | Branch list |
-| `vw_GLSortCodes` | `T_GLSC` headings from both branches |
-| `vw_GLAccounts` | `T_GLAC` (current year, `Closed=0`) + `T_GLACHIST` (closed years, `Closed=1`) |
-| `vw_GLBalances` | One row per branch / year / month (1–12) / account: `MonthDr`, `MonthCr`, `YtdDr`, `YtdCr`, `ClosingBal` |
-| `vw_Customers` | `T_CIF` |
-| `vw_Accounts` | Savings (`SV`), time deposits (`TD`) and loans (`LN`) in one list |
-| `vw_Loans` | `T_LNACC` with arrears, provision and rate |
-| `vw_Transactions` | `T_TRNHIST` |
-
-**Balance calculation:** `ClosingBal(month M) = OBalAmt + Σ Debits(1..M) − Σ Credits(1..M)`.
-Debit is positive, credit is negative. For the current open month this is month-to-date.
-
-**Deploy / refresh:**
+## 4. Database scripts
 
 ```sh
-sh database/deploy.sh                                              # local restore names
+sh database/deploy.sh                                                       # local names
 DB_SERVER=SRV HO_DB=MicroBanker_ho BR_DB=MicroBanker_br sh database/deploy.sh   # production
 ```
 
-The scripts can be re-run safely. Re-run them if the database names change.
-All three databases must be on the same SQL Server instance.
+- **Required:** `04_auth.sql` (the `AppUsers` table) and `01_create_db.sql`.
+- **Optional:** the views in `02_*.sql` aren't used by the backend. They're there for ad-hoc SQL and other tools.
+- `03_security.sql` creates the read-only login. Run it with `-v RO_PASSWORD=...`.
+- All scripts can be re-run safely.
 
 ---
 
 ## 5. Backend API
 
-Base URL `http://localhost:8000/api`. Interactive docs are at `/docs`.
-`branch` = `001` | `002` | `all` (default `all`). Any other value returns 422.
+Base URL `http://localhost:8000/api`, interactive docs at `/docs`.
+- `branch` = `all` | `001` | `002`. `all` gives per-branch columns, an Eliminations column and a Consolidated column.
+- Add `format=xlsx` to any report to get an Excel file.
+- Every report returns the same shape:
+  `{title, subtitle, columns:[{key,label,type}], rows:[{…, _style}], notes:[…]}`.
 
-| Method & path | Parameters | Returns |
-|---|---|---|
-| `GET /health` | – | API status and each branch DB state |
-| `GET /branches` | – | Branch codes and names |
-| `GET /gl/accounts` | `branch` | Current-year chart of accounts |
-| `GET /reports/trial-balance` | `date`, `branch` | Lines (debit/credit, per-branch net), totals, `balanced` |
-| `GET /reports/balance-sheet` | `date`, `branch` | Assets / liabilities / equity grouped by level-2 heading, current-year profit, `balanced` |
-| `GET /reports/profit-loss` | `from`, `to`, `branch` | Income / expenses grouped, net profit (whole months) |
-| `GET /transactions` | `branch`, `from`, `to`, `acc`, `page`, `size` (≤500) | Paged transactions, newest first; id = `BranchCode-Recid` |
-| `GET /reports/{name}/export` | `format=xlsx` + the report's parameters | Excel file (`trial-balance`, `balance-sheet`, `profit-loss`) |
-
-**Report rules in the code (`app/services/reports.py`):**
-- A date selects the month-end balance of that month.
-- For "all", balances are summed per GL account. The HO account title is used.
-- The balance sheet adds unclosed current-year profit (income + expense) to the
-  liabilities + equity side, so Assets = Liabilities + Equity + Profit.
-- P&L sums the monthly movements of income (`005`) and expense (`006`) accounts.
-
-**Configuration (`backend/.env`, template `.env.example`):**
-
-| Key | Meaning |
+| Endpoint | Parameters |
 |---|---|
-| `DB_SERVER`, `DB_DRIVER` | SQL Server instance, ODBC driver |
-| `DB_USER`, `DB_PASSWORD` | Leave empty to use Windows authentication; otherwise use `branchmerge_ro` |
-| `DB_HO`, `DB_BR`, `DB_CONSOLIDATED` | Database names |
-| `CORS_ORIGINS` | Frontend URL(s) |
-| `AMOUNT_DIVISOR` | 100 (cents → rupees) |
+| `GET /health` (no login) | – |
+| `POST /auth/login` (no login) | `{username, password}` |
+| `GET /auth/me`, `GET/POST /auth/users`, `PATCH /auth/users/{u}` | admin for user management |
+| `GET /branches`, `/periods`, `/gl/accounts`, `/dashboard` | – |
+| `GET /reports/trial-balance` | `year`, `month`, `show_zero` |
+| `GET /reports/balance-sheet` | `year`, `month`, `detail` |
+| `GET /reports/income-statement` | `year`, `from_month`, `to_month`, `detail` |
+| `GET /reports/gl-ledger` | `gl_code`, `date_from`, `date_to` (same year) |
+| `GET /reports/loan-portfolio`, `/arrears-ageing`, `/deposits` | – |
+| `GET /reports/arrears-list` | `min_days` (default 31) |
+| `GET /reports/transactions` | `date_from`, `date_to` (max 31 days unless `acc`), `acc` |
 
-**Tests:** `cd backend && .venv\Scripts\python -m pytest`. The tests check that the trial
-balance balances for each branch and for all, that the consolidated figure = HO + Mahapitiya,
-that P&L profit = balance-sheet profit, and that invalid branches are rejected. Tests that need
-the databases are skipped when SQL Server is unavailable.
+Built-in checks appear in a report's notes: TB Dr = Cr, Assets = Liabilities + Equity, and whether the inter-branch pairs agree.
+
+**Configuration (`backend/.env`, template `.env.example`):** `DB_SERVER`, `DB_DRIVER`, `DB_USER`/`DB_PASSWORD`
+(leave empty to use Windows authentication), `DB_HO`, `DB_BR`, `DB_CONSOLIDATED`, `CORS_ORIGINS`, `AMOUNT_DIVISOR`,
+`JWT_SECRET`, `JWT_EXPIRE_MINUTES`. Optional: `ELIMINATIONS`.
+
+**Tests:** `cd backend; .\.venv\Scripts\python -m pytest -q`. There are 28 integration tests. They need the databases.
 
 ---
 
 ## 6. Frontend
 
-| Page | URL | Features |
-|---|---|---|
-| Dashboard | `/` | Assets, liabilities, equity, YTD income/expenses/profit for HO, Mahapitiya and consolidated; balance check; DB status |
-| Trial Balance | `/trial-balance` | Branch + date; in "All" view shows the HO and Mahapitiya columns; Dr = Cr badge |
-| Balance Sheet | `/balance-sheet` | Grouped by heading with account detail; balance badge |
-| Profit & Loss | `/profit-loss` | From/to dates; income, expenses, net profit |
-| Transactions | `/transactions` | Branch, date range, account number filter; 50 per page |
+| Page | URL |
+|---|---|
+| Dashboard: KPIs per branch + consolidated, monthly income/expense trend | `/` |
+| Trial Balance | `/trial-balance` |
+| Balance Sheet (summary / with accounts) | `/balance-sheet` |
+| Profit & Loss (month range) | `/income-statement` |
+| GL Ledger (GL code with suggestions, date range) | `/gl-ledger` |
+| Loan Portfolio | `/loans` |
+| Arrears ageing (PAR) / loans in arrears | `/arrears` |
+| Deposits | `/deposits` |
+| Customer transactions | `/transactions` |
+| Users (admin only) | `/users` |
 
-Each report has **Export Excel** (calls the API) and **Print / PDF** (browser print, A4, navigation hidden).
-Filters are plain GET forms, so a report URL can be bookmarked or shared.
-API address: `NEXT_PUBLIC_API_URL` in `frontend/.env.local` (default `http://localhost:8000`).
+- All reports are drawn by one component (`ReportTable`) from the common report shape.
+- Filters are GET forms, so URLs can be bookmarked.
+- **Export Excel** goes through `/export/<report>`, which adds the login token on the server.
+- **Print / PDF** uses the browser's print, set up for A4 with the navigation hidden.
 
 ---
 
@@ -163,29 +148,15 @@ API address: `NEXT_PUBLIC_API_URL` in `frontend/.env.local` (default `http://loc
 
 | Role | Can do |
 |---|---|
-| `admin` | All reports for all branches; manage users (`/users` page) |
-| `viewer` | Reports for the branch assigned to the user (`001`, `002` or `all`) |
+| `admin` | All branches; manage users (`/users`) |
+| `viewer` | Reports for the assigned branch (`001`, `002` or `all`) |
 
-- Users are stored in `MB_Consolidated.dbo.AppUsers` (`database/04_auth.sql`). This is the
-  **only** table the backend writes to. MBWin is still read-only.
-- Passwords are hashed with PBKDF2-SHA256 (600,000 iterations, random salt). Plain passwords are never stored.
-- `POST /api/auth/login` returns a JWT (HS256, signed with `JWT_SECRET`, valid for `JWT_EXPIRE_MINUTES`, default 8 h).
-  The frontend keeps it in an **httpOnly cookie** (`bm_token`) that the browser's JavaScript can't read.
-- Every API endpoint except `/api/health` and `/api/auth/login` requires the token.
-- A branch user asking for `branch=all` gets only their own branch. Asking for another branch gives 403.
-  The dashboard, filters and branch list show only their branch.
-- An admin can't disable or demote the last active admin.
-- Excel export goes through the frontend (`/export/<report>`), which adds the token on the server side.
-
-| Endpoint | Who | Purpose |
-|---|---|---|
-| `POST /api/auth/login` | anyone | `{username, password}` → `{token, user}` |
-| `GET /api/auth/me` | logged in | Current user |
-| `GET /api/auth/users` | admin | List users |
-| `POST /api/auth/users` | admin | Create user (password min 8 characters) |
-| `PATCH /api/auth/users/{username}` | admin | Change name, password, role, branch, active |
-
-**First admin** (command line, password typed interactively):
+- **Users:** stored in `MB_Consolidated.dbo.AppUsers`. This is the only table the backend writes to.
+- **Passwords:** PBKDF2-SHA256 (600,000 iterations, salted).
+- **Session:** a JWT (HS256, `JWT_SECRET`, 8 h by default) kept in the httpOnly cookie `bm_token`.
+- **Branch access:** a branch user asking for `all` gets their own branch. Asking for another branch gives 403.
+  Their dashboard and branch selectors show only their branch.
+- **Last admin:** can't be disabled or demoted.
 
 ```powershell
 cd backend
@@ -193,59 +164,54 @@ cd backend
 .\.venv\Scripts\python -m app.manage reset-password admin
 ```
 
-Settings: backend `JWT_SECRET` (required, ≥ 32 characters, keep it secret) and `JWT_EXPIRE_MINUTES`;
-frontend `COOKIE_SECURE=true` once the site is served over HTTPS.
-
 ---
 
 ## 8. Running locally
 
 ```powershell
-# 1. Database views + users table
-sh database/deploy.sh
+sh database/deploy.sh                     # MB_Consolidated + AppUsers
 
-# 2. Backend
 cd backend
 python -m venv .venv
 .\.venv\Scripts\pip install -r requirements.txt
-copy .env.example .env          # then set JWT_SECRET
+copy .env.example .env                    # set JWT_SECRET
 .\.venv\Scripts\python -m app.manage create-user admin --name "Administrator" --role admin
 .\.venv\Scripts\uvicorn app.main:app --port 8000
 
-# 3. Frontend (new terminal)
-cd frontend
+cd ..\frontend                            # new terminal
 npm install
 copy .env.local.example .env.local
-npm run dev            # or: npm run build; npm start
+npm run dev                               # or: npm run build; npm start
 ```
 
-Open http://localhost:3000.
+Open http://localhost:3000 and sign in.
 
 ---
 
 ## 9. Verification results (31-Oct-2026 backups, LKR)
 
-| Check | HO | Mahapitiya | Consolidated |
+| Check | HO | Mahapitiya | Consolidated (after eliminations) |
 |---|---|---|---|
-| Trial balance Dr = Cr | 1,632,886,156.07 ✅ | 282,066,868.87 ✅ | 1,914,953,024.94 ✅ |
-| Total assets | 1,445,149,006.93 | 263,604,183.37 | 1,708,753,190.30 (= HO + BR ✅) |
-| Balance sheet balances | ✅ | ✅ | ✅ |
+| Trial balance Dr = Cr | 1,632,886,156.07 ✅ | 282,066,868.87 ✅ | 1,788,880,759.21 ✅ |
+| Total assets = Liabilities + Equity | 1,445,149,006.93 ✅ | 263,604,183.37 ✅ | 1,590,593,088.57 ✅ |
 | Net profit Jan–Oct (P&L = BS) | 7,949,654.75 ✅ | 5,721,260.61 ✅ | 13,670,915.36 ✅ |
-| `ClosingBal` Dec = MBWin `CBalAmt` | ✅ all | ✅ all | 1 exception: HO 2022 system account (MBWin data) |
+| Loans outstanding | 640,468,782.30 | 130,332,286.84 | 770,801,069.14 |
 
-Response times are about 1–2 seconds per page on the local machine.
+- Consolidated assets are LKR 118.16M lower than HO + Mahapitiya. That's the eliminated inter-branch advance.
+- Consolidated PAR > 30 days: 15.89%.
+- The GL ledger for 105010103 reconciles to the trial balance.
+- Loan portfolio total = arrears ageing total.
 
-**Not yet verified:** these figures have not been compared with MBWin's own printed reports.
+**Not yet verified:** comparison with MBWin's own printed reports.
 
 ---
 
 ## 10. Open items & known limitations
 
-1. **Confirm cents:** compare one balance with an MBWin report. If it's wrong, change `AMOUNT_DIVISOR`.
-2. **Inter-branch account `418`:** decide whether to eliminate it in the consolidated balance sheet.
-3. **Month-end only:** reports are at month-end level. Daily balances inside a month would need
-   the journals (`T_GLJL` / `T_GlJlHIST`). HO's October figures are month-to-date (backup taken before EOM).
-4. **HTTPS:** login is in place, but put the site behind HTTPS (IIS) before network use and set `COOKIE_SECURE=true`. There is no login rate limiting yet.
-5. **PDF** uses browser print. There is no server-side PDF.
-6. Customer, account and loan views exist, but there are no API endpoints or pages for them yet.
-7. **Deployment** (Windows service / IIS) and the user guide are still to do (Phase 5).
+1. **Confirm cents** against an MBWin printed report (`AMOUNT_DIVISOR`).
+2. **Confirm the elimination pairs** and the **arrears-days method** (`T_LNINST`) with accounts staff / MBWin.
+3. **Month-end only:** reports are at month-end level. HO's October is pre-EOM, Mahapitiya's is post-EOM.
+4. **Transactions report is slow** (≈ 7 s for one day): `T_TRNHIST` has no date index, and we can't add one because we don't write to MBWin.
+5. **HTTPS:** put the site behind HTTPS (IIS) before network use and set `COOKIE_SECURE=true`.
+   There's no login rate limiting or audit log yet.
+6. **Deployment** (Windows service / IIS) and the user guide are still to do.

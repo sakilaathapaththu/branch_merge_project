@@ -62,9 +62,11 @@ give the level-2 heading used for grouping in the balance sheet and P&L.
 - HO 2022 `901010101 System Transitoria Account`: the stored `CBalAmt` = 0, but the monthly
   movements net to −388,887.26. This is a closed year and a system account, so it doesn't affect
   current reports.
-- `418` INTER BRANCH ACCOUNT exists in both charts. If the branches post to each other through
-  it, these balances should be **eliminated** in the consolidated balance sheet. This isn't
-  implemented yet (open question for the accountant).
+- Inter-branch accounts **are eliminated** in consolidated reports:
+  - HO `418010101` ↔ BR `315400101` (branch advances, ±LKR 118,160,101.73)
+  - HO `201040102` ↔ BR `120010117` (advance interest, ±LKR 7,912,164.00)
+
+  Both pairs net to zero. See `PROGRESS.md` §2.2 and `config.py` → `eliminations`.
 
 ## 4. Customers, accounts, transactions
 
@@ -81,14 +83,15 @@ All consolidated views therefore expose `BranchCode` and the API builds IDs as `
 ## 5. Consolidated views (MB_Consolidated)
 
 `vw_Branches`, `vw_GLSortCodes`, `vw_GLAccounts`, `vw_GLBalances`, `vw_Customers`,
-`vw_Accounts`, `vw_Loans`, `vw_Transactions`. See `database/`.
+`vw_Accounts`, `vw_Loans`, `vw_Transactions`. See `database/`. These are optional: the backend reads the
+branch tables directly. `MB_Consolidated` is required for the `AppUsers` login table.
 
 ## 6. Verified figures (as of 31-Oct-2026, LKR)
 
 | | HO | Mahapitiya | Consolidated |
 |---|---|---|---|
-| Trial balance Dr = Cr | 1,632,886,156.07 | 282,066,868.87 | 1,914,953,024.94 |
-| Total assets | 1,445,149,006.93 | 263,604,183.37 | 1,708,753,190.30 |
+| Trial balance Dr = Cr | 1,632,886,156.07 | 282,066,868.87 | 1,788,880,759.21 (after eliminations) |
+| Total assets | 1,445,149,006.93 | 263,604,183.37 | 1,590,593,088.57 (after eliminations) |
 | Net profit Jan–Oct | 7,949,654.75 | 5,721,260.61 | 13,670,915.36 |
 
 The balance sheet balances for all three. P&L net profit equals current-year profit in the balance sheet.

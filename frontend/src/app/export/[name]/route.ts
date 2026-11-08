@@ -2,15 +2,20 @@ import { NextRequest } from "next/server";
 import { API_URL } from "@/lib/api";
 import { getToken } from "@/lib/session";
 
-const REPORTS = new Set(["trial-balance", "balance-sheet", "profit-loss"]);
+const REPORTS = new Set([
+  "trial-balance", "balance-sheet", "income-statement", "gl-ledger", "loan-portfolio",
+  "arrears-ageing", "arrears-list", "deposits", "transactions",
+]);
 
-/** Proxies Excel export so the browser never needs the token itself. */
+/** Excel export: proxies /api/reports/<name>?…&format=xlsx with the user's token. */
 export async function GET(req: NextRequest, { params }: { params: Promise<{ name: string }> }) {
   const { name } = await params;
   if (!REPORTS.has(name)) return new Response("Not found", { status: 404 });
   const token = await getToken();
   if (!token) return new Response("Not logged in", { status: 401 });
-  const res = await fetch(`${API_URL}/api/reports/${name}/export${req.nextUrl.search}`, {
+  const q = new URLSearchParams(req.nextUrl.searchParams);
+  q.set("format", "xlsx");
+  const res = await fetch(`${API_URL}/api/reports/${name}?${q}`, {
     headers: { Authorization: `Bearer ${token}` },
     cache: "no-store",
   });
