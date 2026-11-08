@@ -17,6 +17,9 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:3000"
 
+    # MBWin stores money as integer cents; divide to get rupees.
+    amount_divisor: int = 100
+
     @property
     def branches(self) -> dict[str, dict[str, str]]:
         """Branch code -> name and source database."""

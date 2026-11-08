@@ -71,24 +71,24 @@ branchmerge/
 
 ## 5. Phases
 
-### Phase 0 – Setup *(current)*
+### Phase 0 – Setup *(done)*
 - [x] Restore backups locally (`MicroBanker_ho_BeforeEOM_20261031`, `MicroBanker_br_EOM_20261031`)
 - [x] Clone repo, write this plan
-- [ ] Scaffold backend (FastAPI) and frontend (Next.js), with a health check end to end
+- [x] Scaffold backend (FastAPI) and frontend (Next.js), with a health check end to end
 
 ### Phase 1 – Database analysis
-- [ ] Document key tables: GL master, `T_GLJL` / `T_GlJlHIST` / `T_GLTRNHIST`, `T_TRNHIST`, customer & account masters, loan tables (`T_LNINST`)
-- [ ] Compare the chart of accounts (GL codes) between HO and Mahapitiya and build a GL mapping table where they differ
-- [ ] Identify how MBWin calculates GL balances (opening balance + movements, EOM snapshots)
-- [ ] Output: `docs/DB_ANALYSIS.md`
+- [x] Document key tables: GL master, `T_GLJL` / `T_GlJlHIST` / `T_GLTRNHIST`, `T_TRNHIST`, customer & account masters, loan tables (`T_LNINST`)
+- [x] Compare the chart of accounts (GL codes) between HO and Mahapitiya and build a GL mapping table where they differ → not needed: same codes/classes, only titles differ
+- [x] Identify how MBWin calculates GL balances (opening balance + movements, EOM snapshots)
+- [x] Output: `docs/DB_ANALYSIS.md`
 
 ### Phase 2 – Consolidated database
-- [ ] Create `MB_Consolidated` with views using `UNION ALL` across both DBs, tagged by `BranchCode`
-- [ ] Views: `vw_Branches`, `vw_GLAccounts`, `vw_GLBalances`, `vw_Transactions`, `vw_Customers`, `vw_Accounts`, `vw_Loans`
-- [ ] Read-only SQL login for the backend
-- [ ] Database names are configurable (local restore names ≠ production names)
+- [x] Create `MB_Consolidated` with views using `UNION ALL` across both DBs, tagged by `BranchCode`
+- [x] Views: `vw_Branches`, `vw_GLAccounts`, `vw_GLBalances`, `vw_Transactions`, `vw_Customers`, `vw_Accounts`, `vw_Loans`
+- [x] Read-only SQL login for the backend
+- [x] Database names are configurable (local restore names ≠ production names)
 
-### Phase 3 – Backend API (FastAPI)
+### Phase 3 – Backend API (FastAPI) *(done – xlsx export; PDF via browser print)*
 - `GET /api/health`
 - `GET /api/branches`
 - `GET /api/gl/accounts`
@@ -99,7 +99,7 @@ branchmerge/
 - `GET /api/reports/{name}/export?format=xlsx|pdf`
 - Validation: consolidated total = HO + Mahapitiya, and the trial balance must balance (Dr = Cr)
 
-### Phase 4 – Frontend (Next.js)
+### Phase 4 – Frontend (Next.js) *(done – first version)*
 - Dashboard: key totals per branch and consolidated
 - Trial balance, balance sheet, P&L pages with a branch selector (HO / Mahapitiya / All) and date picker
 - Transaction search
@@ -121,6 +121,8 @@ branchmerge/
 ## 7. Open Questions
 
 - Does the production server host both DBs on the same SQL instance? (Cross-database views need this. If not, use a linked server or ETL.)
-- Are the GL charts identical across branches?
+- ~~Are the GL charts identical across branches?~~ Yes, apart from titles (see DB_ANALYSIS.md)
+- Is money stored in cents? (Assumed, `AMOUNT_DIVISOR=100`; confirm against an MBWin report)
+- Should inter-branch account `418` be eliminated in the consolidated balance sheet?
 - Which reports does management need first? (Suggested: trial balance → balance sheet → P&L)
 - Who will use the system, and does it need login roles per branch?

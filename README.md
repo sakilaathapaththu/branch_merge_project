@@ -10,6 +10,12 @@ See [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md) for the full plan.
 - Python 3.12, Node.js 20+
 - SQL Server with both MBWin databases, plus **ODBC Driver 17 for SQL Server**
 
+## Database (MB_Consolidated)
+
+```sh
+sh database/deploy.sh      # creates the consolidated views; see database/README.md
+```
+
 ## Backend (FastAPI)
 
 ```powershell
@@ -31,4 +37,6 @@ copy .env.local.example .env.local
 npm run dev
 ```
 
-Open http://localhost:3000
+Open http://localhost:3000 (dashboard, trial balance, balance sheet, P&L, transactions).
+
+DB findings: [docs/DB_ANALYSIS.md](docs/DB_ANALYSIS.md).
