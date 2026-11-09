@@ -9,5 +9,10 @@ body {
 @media print {
   .no-print { display: none !important; }
   main { padding: 0 !important; max-width: none !important; }
-  @page { size: A4; margin: 12mm; }
+  @page { size: A4 landscape; margin: 10mm; }
+  /* wide multi-branch tables: no clipping, smaller type, repeat header row */
+  .overflow-x-auto { overflow: visible !important; }
+  table { font-size: 9pt !important; width: 100% !important; }
+  thead { display: table-header-group; }
+  tr { break-inside: avoid; }
 }
