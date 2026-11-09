@@ -9,6 +9,7 @@ Source tables (per branch database):
 
 Verified on the 31-Oct-2026 backups: CBalAmt = OBalAmt + Debits - Credits for every
 GL, monthly columns sum to the yearly totals, and journal lines reconcile to T_GLAC.
+Monthly movements are re-bucketed by journal date (see load_gl) to match MBWin's ledger.
 Sign convention: debit balances positive, credit balances negative.
 CaluieType: 001 equity, 002 assets, 003 liabilities, 004 suspense, 005 income, 006 expenses.
 """
@@ -51,25 +52,68 @@ def current_year(code: str) -> int:
     return int(r[0]["y"])
 
 
+_JNL_MONTHLY_SQL = """
+SELECT acc, m, SUM(dr) AS dr, SUM(cr) AS cr FROM (
+  SELECT DrAcc AS acc, MONTH(JnlDate) AS m, DrAmt AS dr, 0 AS cr FROM [{db}].dbo.T_GlJlHIST
+   WHERE DrGLAccTF = 'T' AND JnlDate >= :y0 AND JnlDate < :y1
+  UNION ALL
+  SELECT CrAcc, MONTH(JnlDate), 0, CrAmt FROM [{db}].dbo.T_GlJlHIST
+   WHERE CrGLAccTF = 'T' AND JnlDate >= :y0 AND JnlDate < :y1
+  UNION ALL
+  SELECT DrAcc, MONTH(CurrRunDate), DrAmt, 0 FROM [{db}].dbo.T_GLJL
+   WHERE DrGLAccTF = 'T' AND CurrRunDate >= :y0 AND CurrRunDate < :y1
+  UNION ALL
+  SELECT CrAcc, MONTH(CurrRunDate), 0, CrAmt FROM [{db}].dbo.T_GLJL
+   WHERE CrGLAccTF = 'T' AND CurrRunDate >= :y0 AND CurrRunDate < :y1
+) x GROUP BY acc, m
+"""
+
+
+def _journal_months(code: str, year: int) -> dict[str, tuple[list[float], list[float]]]:
+    """Debits/credits per GL per month, bucketed by journal date."""
+    out: dict[str, tuple[list[float], list[float]]] = {}
+    rows = cached_query(_JNL_MONTHLY_SQL.format(db=db(code)),
+                        {"y0": date(year, 1, 1), "y1": date(year + 1, 1, 1)})
+    for r in rows:
+        dr, cr = out.setdefault(r["acc"], ([0.0] * 12, [0.0] * 12))
+        dr[r["m"] - 1] += r["dr"] or 0.0
+        cr[r["m"] - 1] += r["cr"] or 0.0
+    return out
+
+
 def load_gl(code: str, year: int) -> dict[str, GL]:
+    """GL master data with monthly movements.
+
+    T_GLAC's monthly columns follow MBWin's posting period, so an entry keyed in
+    before month-end was run can sit in the previous month (e.g. an October-dated
+    journal counted in CreditsAmt9). MBWin's own ledger uses the journal date, so
+    the months are rebuilt from journal lines. A GL keeps the T_GLAC months only
+    when its journals do not reconcile to the yearly totals (e.g. purged history).
+    """
     table = "T_GLAC" if year == current_year(code) else "T_GLACHIST"
     rows = cached_query(
         f"SELECT GlAcc, FullTitle, SortAcc, CaluieType, OBalAmt, {_MCOLS} "
         f"FROM [{db(code)}].dbo.{table} WHERE FinYear = :y",
         {"y": year},
     )
-    return {
-        r["GlAcc"]: GL(
+    jnl = _journal_months(code, year)
+    out = {}
+    for r in rows:
+        dr = [r[f"DebitsAmt{i}"] or 0.0 for i in range(1, 13)]
+        cr = [r[f"CreditsAmt{i}"] or 0.0 for i in range(1, 13)]
+        j = jnl.get(r["GlAcc"])
+        if j and abs(sum(j[0]) - sum(dr)) < 0.5 and abs(sum(j[1]) - sum(cr)) < 0.5:
+            dr, cr = j
+        out[r["GlAcc"]] = GL(
             gl=r["GlAcc"],
             title=r["FullTitle"] or "",
             sort=str(r["SortAcc"] or "").strip(),
             ctype=r["CaluieType"] or "",
             ob=r["OBalAmt"] or 0.0,
-            dr=[r[f"DebitsAmt{i}"] or 0.0 for i in range(1, 13)],
-            cr=[r[f"CreditsAmt{i}"] or 0.0 for i in range(1, 13)],
+            dr=dr,
+            cr=cr,
         )
-        for r in rows
-    }
+    return out
 
 
 def headings(codes: list[str]) -> dict[str, str]:
